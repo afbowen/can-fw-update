@@ -1,0 +1,23 @@
+{
+    "can_ids": {
+        "CMD_ID_BASE"   : "0x600",
+        "DATA_ID_BASE"  : "0x640",
+        "STATUS_ID_BASE": "0x680"
+    },
+    "commands": {
+        "BEGIN": "0x81",
+        "BLOCK": "0x82",
+        "DATA" : "0x83",
+        "END"  : "0x84",
+        "ABORT": "0x85"
+    },
+    "statuses": {
+        "OK"          : 0,
+        "BAD_STATE"   : 1,
+        "BAD_OFFSET"  : 2,
+        "FLASH_ERROR" : 3,
+        "CRC_ERROR"   : 4,
+        "BAD_SEQUENCE": 5
+    },
+    "block_size": 224
+}
