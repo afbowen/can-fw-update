@@ -24,7 +24,7 @@ bool CanFwUpdate::begin() {
     if (node_ == 0 || node_ > 31) return false;
     twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(tx_, rx_, TWAI_MODE_NORMAL);
     g.rx_queue_len = 64;
-    twai_timing_config_t t = TWAI_TIMING_CONFIG_500KBITS();
+    twai_timing_config_t t = TWAI_TIMING_CONFIG_1MBITS();
     twai_filter_config_t f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
     if (twai_driver_install(&g, &t, &f) != ESP_OK) return false;
     if (twai_start() == ESP_OK) return true;
@@ -37,10 +37,13 @@ bool CanFwUpdate::begin() {
 void CanFwUpdate::poll() {
     twai_message_t m;
 
+    if (running_ && uint32_t(millis() - lastActivityMs_) >= kSessionTimeoutMs) {
+        abortUpdate();
+    }
+
     // Drain pending traffic; BLOCK ACK naturally provides back-pressure.
     while (twai_receive(&m, 0) == ESP_OK) {
         if (m.extd || m.rtr || m.data_length_code == 0) continue;
-
         if (     m.identifier == uint32_t(CMD_ID_BASE  + node_)) process_command(m);
         else if (m.identifier == uint32_t(DATA_ID_BASE + node_)) process_data(m);
     }
@@ -78,6 +81,7 @@ void CanFwUpdate::process_command(const twai_message_t& m) {
             }
 
             running_ = true;
+            lastActivityMs_ = millis();
             publish_status(cmd, Status::OK);
             return;
         }
@@ -98,6 +102,7 @@ void CanFwUpdate::process_command(const twai_message_t& m) {
             blockUsed_ = 0;
             nextSeq_ = 0;
             receiving_ = true;
+            lastActivityMs_ = millis();
             publish_status(cmd, Status::OK);
             return;
         }
@@ -165,9 +170,13 @@ void CanFwUpdate::process_data(const twai_message_t& m) {
     memcpy(block_ + blockUsed_, m.data + 1, len);
     blockUsed_ += len;
     ++nextSeq_;
+    lastActivityMs_ = millis();
     if (blockUsed_ != blockLen_) return;
     receiving_ = false;
-    if (Update.write(block_, blockLen_) != blockLen_) {
+    uint32_t start = millis();
+    size_t written = Update.write(block_, blockLen_);
+    Serial.printf("Flash write: %lu ms\r\n", millis() - start);
+    if (written != blockLen_) {
         publish_status(cmd, Status::FLASH_ERROR);
         abortUpdate();
         return;
@@ -188,7 +197,19 @@ void CanFwUpdate::process_data(const twai_message_t& m) {
 
 void CanFwUpdate::abortUpdate() {
     if (running_) Update.abort();
-    running_ = receiving_ = false;
+
+    // Reset all vars
+    running_   = false;
+    receiving_ = false;
+
+    expected_       = 0;
+    committed_      = 0;
+    blockLen_       = 0;
+    blockUsed_      = 0;
+    nextSeq_        = 0;
+    lastActivityMs_ = 0;
+
+    crc_ = 0xFFFFFFFFU;
 }
 
 

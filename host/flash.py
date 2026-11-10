@@ -92,13 +92,15 @@ def flash(bus, node: int, image: bytes, tries: int = 5) -> None:
                 send(cmd_id, struct.pack('<BIH', Command.BLOCK, offset, len(chunk)))
                 try:
                     err, current = wait_for(Command.BLOCK)
-                    if current == offset + len(chunk):  # Previous block ACK was lost.
+                    if err == Status.BAD_STATE and offset > 0 and current == 0:
+                        raise RuntimeError("Target rebooted; restart update from byte 0")
+                    if err == Status.BAD_OFFSET and current == offset + len(chunk):  # Previous block ACK was lost.
                         break
-                    if err or current != offset:
+                    if err != Status.OK or current != offset:
                         raise RuntimeError(f"BLOCK rejected: error={err}, offset={current}")
                     for seq, start in enumerate(range(0, len(chunk), 7)):
                         send(data_id, bytes([seq]) + chunk[start:start + 7])
-                        time.sleep(0.002)  # 2 ms between CAN frames
+                        time.sleep(0.00001)  # 1 us between CAN frames (TODO make this dynamic based on baud of interface)
                     err, current = wait_for(Command.DATA, 10)
                     if err == 0 and current == offset + len(chunk):
                         break
@@ -120,14 +122,16 @@ def flash(bus, node: int, image: bytes, tries: int = 5) -> None:
         progress.finish("Complete")
         print("Success; device rebooting into updated firmware")
 
-    except Exception:
-        progress.finish("Failed")
-        try:
-            send(cmd_id, bytes([Command.ABORT]))
-        except can.CanError:
-            pass
-        raise
+    except (Exception, KeyboardInterrupt) as exc:
+        progress.finish("Cancelled" if isinstance(exc, KeyboardInterrupt) else "Failed")
 
+        if not isinstance(exc, can.CanError):
+            try:
+                send(cmd_id, bytes([Command.ABORT]))
+            except can.CanError:
+                pass
+
+        raise
 
 def main():
     p = argparse.ArgumentParser(description="ESP32-C3 firmware update over CAN")
@@ -145,4 +149,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("Update cancelled", file=sys.stderr)
+        sys.exit(130)
+    except can.CanError as exc:
+        print(f"CAN communication failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except (TimeoutError, RuntimeError) as exc:
+        print(f"Update failed: {exc}", file=sys.stderr)
+        sys.exit(1)

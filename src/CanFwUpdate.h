@@ -17,6 +17,7 @@ class CanFwUpdate {
         using Status  = CanFwUpdateProtocol::Status;
 
         static constexpr uint16_t kBlockBytes = CanFwUpdateProtocol::BLOCK_SIZE;
+        static constexpr uint32_t kSessionTimeoutMs = 10000;
 
         gpio_num_t tx_, rx_;
         uint8_t node_;
@@ -25,6 +26,8 @@ class CanFwUpdate {
         uint16_t blockLen_ = 0, blockUsed_ = 0;
         uint8_t  nextSeq_  = 0, block_[kBlockBytes] = {};
         uint32_t rebootAt_ = 0;
+
+        uint32_t lastActivityMs_ = 0;
 
         void process_command(const twai_message_t& m);
         void process_data(   const twai_message_t& m);

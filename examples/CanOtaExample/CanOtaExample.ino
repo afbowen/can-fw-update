@@ -5,7 +5,7 @@
 constexpr gpio_num_t CAN_TX = GPIO_NUM_2;
 constexpr gpio_num_t CAN_RX = GPIO_NUM_3;
 constexpr uint8_t NODE_ID = 1;
-constexpr char VERSION[] = "v3";
+constexpr char VERSION[] = "v6";
 
 CanFwUpdate updater(CAN_TX, CAN_RX, NODE_ID);
 
