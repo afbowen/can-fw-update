@@ -7,9 +7,9 @@
 // Prototype only: no authentication, use on a trusted CAN bus.
 class CanFwUpdate {
     public:
-        CanFwUpdate(gpio_num_t tx, gpio_num_t rx, uint8_t node = 1);
-        bool begin();  // Configures TWAI at 500 kbit/s
+        CanFwUpdate(uint8_t node_id = 1);
         void poll();   // Call frequently from loop()
+        bool handleMessage(const twai_message_t& msg);
 
     private:
 
@@ -19,8 +19,7 @@ class CanFwUpdate {
         static constexpr uint16_t kBlockBytes = CanFwUpdateProtocol::BLOCK_SIZE;
         static constexpr uint32_t kSessionTimeoutMs = 10000;
 
-        gpio_num_t tx_, rx_;
-        uint8_t node_;
+        uint8_t node_id_;
         bool running_ = false, receiving_ = false, rebootPending_ = false;
         uint32_t expected_ = 0, committed_ = 0, crc_ = 0xFFFFFFFF;
         uint16_t blockLen_ = 0, blockUsed_ = 0;

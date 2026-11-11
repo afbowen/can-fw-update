@@ -7,12 +7,13 @@ using CanFwUpdateProtocol::CMD_ID_BASE;
 using CanFwUpdateProtocol::DATA_ID_BASE;
 using CanFwUpdateProtocol::STATUS_ID_BASE;
 
+
 ////////////////
 // INITIALIZE //
 ////////////////
 
-CanFwUpdate::CanFwUpdate(gpio_num_t tx, gpio_num_t rx, uint8_t node)
-    : tx_(tx), rx_(rx), node_(node) {}
+CanFwUpdate::CanFwUpdate(uint8_t node_id)
+    : node_id_(node_id) {}
 
 
 
@@ -20,34 +21,35 @@ CanFwUpdate::CanFwUpdate(gpio_num_t tx, gpio_num_t rx, uint8_t node)
 // PUBLIC //
 ////////////
 
-bool CanFwUpdate::begin() {
-    if (node_ == 0 || node_ > 31) return false;
-    twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(tx_, rx_, TWAI_MODE_NORMAL);
-    g.rx_queue_len = 64;
-    twai_timing_config_t t = TWAI_TIMING_CONFIG_1MBITS();
-    twai_filter_config_t f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
-    if (twai_driver_install(&g, &t, &f) != ESP_OK) return false;
-    if (twai_start() == ESP_OK) return true;
-    twai_driver_uninstall();
-    return false;
-
-}
-
-
 void CanFwUpdate::poll() {
-    twai_message_t m;
 
-    if (running_ && uint32_t(millis() - lastActivityMs_) >= kSessionTimeoutMs) {
+    // Abort update if frames from remote updater stop unexpectedly
+    if (running_ &&
+        uint32_t(millis() - lastActivityMs_) >= kSessionTimeoutMs) {
         abortUpdate();
     }
 
-    // Drain pending traffic; BLOCK ACK naturally provides back-pressure.
-    while (twai_receive(&m, 0) == ESP_OK) {
-        if (m.extd || m.rtr || m.data_length_code == 0) continue;
-        if (     m.identifier == uint32_t(CMD_ID_BASE  + node_)) process_command(m);
-        else if (m.identifier == uint32_t(DATA_ID_BASE + node_)) process_data(m);
+    // Reboot ESP if update completed successfully
+    if (rebootPending_ && int32_t(millis() - rebootAt_) >= 0) {
+        ESP.restart();
     }
-    if (rebootPending_ && int32_t(millis() - rebootAt_) >= 0) ESP.restart();
+}
+
+
+bool CanFwUpdate::handleMessage(const twai_message_t& m) {
+    if (m.extd || m.rtr) return false;
+
+    if (m.identifier == uint32_t(CMD_ID_BASE + node_id_)) {
+        if (m.data_length_code > 0) process_command(m);
+        return true;
+    }
+
+    if (m.identifier == uint32_t(DATA_ID_BASE + node_id_)) {
+        if (m.data_length_code > 0) process_data(m);
+        return true;
+    }
+
+    return false;
 }
 
 
@@ -175,7 +177,6 @@ void CanFwUpdate::process_data(const twai_message_t& m) {
     receiving_ = false;
     uint32_t start = millis();
     size_t written = Update.write(block_, blockLen_);
-    Serial.printf("Flash write: %lu ms\r\n", millis() - start);
     if (written != blockLen_) {
         publish_status(cmd, Status::FLASH_ERROR);
         abortUpdate();
@@ -215,7 +216,7 @@ void CanFwUpdate::abortUpdate() {
 
 void CanFwUpdate::publish_status(Command cmd, Status status) {
     twai_message_t m = {};
-    m.identifier = STATUS_ID_BASE + node_;
+    m.identifier = STATUS_ID_BASE + node_id_;
     m.data_length_code = 6;
     m.data[0] = static_cast<uint8_t>(cmd);
     m.data[1] = static_cast<uint8_t>(status);

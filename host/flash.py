@@ -100,7 +100,7 @@ def flash(bus, node: int, image: bytes, tries: int = 5) -> None:
                         raise RuntimeError(f"BLOCK rejected: error={err}, offset={current}")
                     for seq, start in enumerate(range(0, len(chunk), 7)):
                         send(data_id, bytes([seq]) + chunk[start:start + 7])
-                        time.sleep(0.00001)  # 1 us between CAN frames (TODO make this dynamic based on baud of interface)
+                        time.sleep(0.00002)  # 1 us between CAN frames (TODO make this dynamic based on baud of interface)
                     err, current = wait_for(Command.DATA, 10)
                     if err == 0 and current == offset + len(chunk):
                         break
